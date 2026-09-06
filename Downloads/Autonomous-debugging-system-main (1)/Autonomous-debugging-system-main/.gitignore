@@ -1,0 +1,119 @@
+# ===============================
+
+# Python
+
+# ===============================
+
+**pycache**/
+*.pyc
+*.pyo
+*.pyd
+*.py[cod]
+*.so
+
+# ===============================
+
+# Virtual Environment
+
+# ===============================
+
+venv/
+env/
+.venv/
+
+# ===============================
+
+# Environment Variables
+
+# ===============================
+
+.env
+
+# ===============================
+
+# Logs
+
+# ===============================
+
+logs/
+*.log
+
+# ===============================
+
+# IDE / Editor
+
+# ===============================
+
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ===============================
+
+# OS Files
+
+# ===============================
+
+.DS_Store
+Thumbs.db
+
+# ===============================
+
+# Jupyter Notebook (if used)
+
+# ===============================
+
+.ipynb_checkpoints/
+
+# ===============================
+
+# Temporary Files
+
+# ===============================
+
+*.tmp
+*.temp
+
+# ===============================
+
+# Model / Cache Files (optional)
+
+# ===============================
+
+*.bin
+*.pt
+*.ckpt
+
+# ===============================
+
+# Build / Distribution
+
+# ===============================
+
+build/
+dist/
+*.egg-info/
+
+# ===============================
+
+# IMPORTANT: Keep Dataset Files
+
+# ===============================
+
+# Do NOT ignore your data folder
+
+!data/
+!data/scenario_1/
+!data/scenario_2/
+!data/scenario_3/
+
+# ===============================
+
+# Optional: Ignore generated JSON (NOT your dataset)
+
+# ===============================
+
+# Uncomment only if you generate temp JSON files
+
+# *.json

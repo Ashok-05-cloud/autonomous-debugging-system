@@ -1,0 +1,39 @@
+{
+  "title": "Payment processor sends incorrect minor unit amounts for large decimal values, causing gateway rejections",
+  "id": "BUG-2847",
+  "severity": "CRITICAL",
+  "priority": "P1",
+  "reported_by": "payments-oncall@company.com",
+  "reported_at": "2025-09-14T03:22:11Z",
+  "affected_version": "v2.4.1",
+  "component": "payments/processor.py",
+  "environment": {
+    "python_version": "3.11.4",
+    "os": "Ubuntu 22.04 LTS",
+    "deployment": "production-us-east-1",
+    "load_balancer": "nginx/1.24.0"
+  },
+  "description": "Since deploying v2.4.1 on September 13th at 18:00 UTC, we are seeing a significant spike in payment gateway rejections specifically for transactions where the amount has cents (decimal portion). The gateway is reporting 'INVALID_AMOUNT' errors. The issue appears intermittent but is highly correlated with transaction amounts above $1000 that have non-zero cent values. Transactions with whole dollar amounts (e.g., $500.00) succeed fine. This is causing approximately 3-5% of all transactions to fail silently in some cases, or visibly in others.",
+  "expected_behavior": "A payment of $9999.99 USD should result in 999999 minor units (cents) being sent to the payment gateway. The gateway should authorize and return a successful response.",
+  "actual_behavior": "A payment of $9999.99 USD results in 999998 minor units being sent to the gateway. The gateway rejects amounts that are 1 cent off the expected value, returning INVALID_AMOUNT. In some cases the discrepancy is larger for amounts like $1234.57 where float representation causes rounding errors.",
+  "reproduction_hints": [
+    "Use amounts with many decimal places or large values: $9999.99, $1234.57, $5678.90",
+    "The bug is in to_minor_units() in Transaction class",
+    "Specifically: int(float(self.amount) * multiplier) loses precision",
+    "Compare: int(float(Decimal('9999.99')) * 100) vs int(Decimal('9999.99') * 100)"
+  ],
+  "impact": {
+    "transactions_affected": "~340 in last 6 hours",
+    "revenue_at_risk": "$42,000 estimated",
+    "customers_affected": "~280 unique customers",
+    "error_rate_increase": "3.2% → 8.7%"
+  },
+  "attempted_fixes": [
+    "Rolled back to v2.4.0 on 3 of 10 instances — confirmed fix, awaiting full rollback approval",
+    "Increased gateway timeout — no effect",
+    "Checked network issues — not network related"
+  ],
+  "related_issues": ["BUG-2801", "BUG-2756"],
+  "logs_attached": true,
+  "repo_attached": true
+}

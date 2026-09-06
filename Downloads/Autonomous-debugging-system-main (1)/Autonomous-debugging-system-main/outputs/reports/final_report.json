@@ -1,0 +1,241 @@
+{
+  "bug_summary": {
+    "title": "Payment processor sends incorrect minor unit amounts for large decimal values, causing gateway rejections",
+    "severity": "critical",
+    "symptoms": [
+      "A payment of $9999.99 USD results in 999998 minor units being sent to the gateway. The gateway rejects amounts that are 1 cent off the expected value, returning INVALID_AMOUNT. In some cases the discr",
+      "Error condition detected",
+      "Failure condition detected"
+    ],
+    "expected_behavior": "A payment of $9999.99 USD should result in 999999 minor units (cents) being sent to the payment gateway. The gateway should authorize and return a successful response.",
+    "actual_behavior": "A payment of $9999.99 USD results in 999998 minor units being sent to the gateway. The gateway rejects amounts that are 1 cent off the expected value, returning INVALID_AMOUNT. In some cases the discrepancy is larger for amounts like $1234.57 where float representation causes rounding errors.",
+    "environment": {
+      "language": "3.11.4",
+      "version": "3.11.4",
+      "os": "Ubuntu 22.04 LTS",
+      "framework": "unknown"
+    },
+    "failure_surface": "payments/processor.py",
+    "scope": "payments/processor.py",
+    "impact": {
+      "transactions_affected": "~340 in last 6 hours",
+      "revenue_at_risk": "$42,000 estimated",
+      "customers_affected": "~280 unique customers",
+      "error_rate_increase": "3.2% \u2192 8.7%"
+    }
+  },
+  "evidence": [
+    {
+      "type": "stack_trace",
+      "exception": "ValueError",
+      "message": "Gateway validation error: minor_units=999998 failed gateway check for amount=9999.99 USD",
+      "file": "/opt/app/src/payments/processor.py",
+      "line": 58,
+      "function": "to_minor_units",
+      "frequency": 1
+    },
+    {
+      "type": "stack_trace",
+      "exception": "ValueError",
+      "message": "Gateway validation error: minor_units=123456 failed gateway check for amount=1234.57 USD",
+      "file": "/opt/app/src/payments/processor.py",
+      "line": 58,
+      "function": "to_minor_units",
+      "frequency": 1
+    },
+    {
+      "type": "stack_trace",
+      "exception": "ValueError",
+      "message": "Gateway validation error: minor_units=345677 failed gateway check for amount=3456.78 USD",
+      "file": "/opt/app/src/payments/processor.py",
+      "line": 58,
+      "function": "to_minor_units",
+      "frequency": 1
+    },
+    {
+      "type": "stack_trace",
+      "exception": "ValueError",
+      "message": "Gateway validation error: minor_units=99998 failed gateway check for amount=999.99 USD",
+      "file": "/opt/app/src/payments/processor.py",
+      "line": 58,
+      "function": "to_minor_units",
+      "frequency": 1
+    },
+    {
+      "type": "stack_trace",
+      "exception": "ValueError",
+      "message": "Gateway validation error: minor_units=250000 failed gateway check for amount=2500.01 USD",
+      "file": "/opt/app/src/payments/processor.py",
+      "line": 58,
+      "function": "to_minor_units",
+      "frequency": 1
+    },
+    {
+      "type": "log_error",
+      "timestamp": "2025-09-14 03:15:05,445",
+      "message": "Gateway rejected txn=YL83NB2C error=INVALID_AMOUNT minor_units_sent=999998 expected=999999",
+      "logger": "app.payments.processor"
+    },
+    {
+      "type": "log_error",
+      "timestamp": "2025-09-14 03:15:05,446",
+      "message": "Payment failed txn=YL83NB2C status=failed customer=cust_0021 amount=9999.99",
+      "logger": "app.payments.processor"
+    },
+    {
+      "type": "log_error",
+      "timestamp": "2025-09-14 03:15:05,447",
+      "message": "Payment processing error for request_id=e5f6g7h8",
+      "logger": "app.api.router"
+    },
+    {
+      "type": "log_error",
+      "timestamp": "2025-09-14 03:15:10,388",
+      "message": "Gateway rejected txn=AN05PD4E error=INVALID_AMOUNT minor_units_sent=123456 expected=123457",
+      "logger": "app.payments.processor"
+    },
+    {
+      "type": "log_error",
+      "timestamp": "2025-09-14 03:15:10,389",
+      "message": "Payment failed txn=AN05PD4E status=failed customer=cust_7741 amount=1234.57",
+      "logger": "app.payments.processor"
+    },
+    {
+      "type": "anomaly",
+      "description": "Repeated exception: ValueError appears 6 times"
+    },
+    {
+      "type": "anomaly",
+      "description": "Potential memory leak mentioned in logs"
+    },
+    {
+      "type": "anomaly",
+      "description": "Rate limiter bucket growth detected (possible memory leak)"
+    }
+  ],
+  "repro": {
+    "file": "outputs/repro/repro_1775706151.py",
+    "command": "python outputs/repro/repro_1775706151.py",
+    "status": "fail",
+    "exit_code": 2,
+    "output": "",
+    "duration_s": 0.366,
+    "bug_confirmed": true
+  },
+  "root_cause": {
+    "hypothesis": "ValueError (INVALID_AMOUNT) from gateway caused by float precision loss in Transaction.to_minor_units(): int(float(Decimal) * multiplier) loses precision for large decimal values, causing minor unit amounts to be 1 cent short of the correct value.",
+    "mechanism": "1. Payment amount stored as Decimal (exact). 2. to_minor_units() converts to float first. 3. float(Decimal('9999.99')) = 9999.99 in IEEE 754, but float * 100 = 999998.9999... which truncates to 999998 via int(). 4. Gateway receives 999998 instead of expected 999999. 5. Gateway rejects with INVALID_AMOUNT.",
+    "confidence": 0.95,
+    "affected_component": "/opt/app/src/payments/processor.py:to_minor_units",
+    "bug_type": "precision_error",
+    "evidence_alignment": "Repro confirmed. Stack traces show to_minor_units() at the point of failure. Log lines show minor_units_sent off by exactly 1 in every failure case."
+  },
+  "patch_plan": {
+    "summary": "Replace int(float(amount) * multiplier) with int(amount * multiplier)",
+    "files_to_change": [
+      {
+        "file": "/opt/app/src/payments/processor.py",
+        "lines": "58",
+        "change": "Line: return int(float(self.amount) * multiplier)\nFix:  return int(self.amount * multiplier)"
+      }
+    ],
+    "code_change": "# Before (BUGGY):\nreturn int(float(self.amount) * multiplier)\n\n# After (FIXED):\nreturn int(self.amount * multiplier)  # Decimal * int stays exact",
+    "risks": [
+      "Ensure multiplier is int, not float (safe \u2014 CURRENCY_MULTIPLIERS uses int literals)",
+      "Verify Decimal * int behavior for all test amounts",
+      "Check for any other float(Decimal) conversions in payment code"
+    ],
+    "breaking_changes": false
+  },
+  "validation_plan": {
+    "testing_approach": "Run existing test_large_amount_precision + add parametrized suite",
+    "validation_steps": [
+      "Run: pytest tests/test_payments.py::TestEdgeCases::test_large_amount_precision",
+      "Verify: int(Decimal('9999.99') * 100) == 999999",
+      "Verify: int(Decimal('1234.57') * 100) == 123457",
+      "Deploy fix to staging and run full payment flow",
+      "Monitor error rate on next 1000 transactions"
+    ],
+    "regression_tests": [
+      "test_minor_units_large_amount: parametrize [9999.99, 1234.57, 3456.78, 7890.45]",
+      "test_minor_units_jpy_no_subunit: Decimal('1500') * 1 == 1500",
+      "test_minor_units_small_amount: Decimal('0.01') * 100 == 1"
+    ],
+    "edge_cases": [
+      "Test with amount=0.01 (minimum) \u2014 int(Decimal('0.01') * 100) = 1",
+      "Test with amount=999999.99 (near maximum)",
+      "Test JPY (multiplier=1) \u2014 no subunit conversion",
+      "Test EUR and GBP amounts to ensure multiplier is consistent",
+      "Test negative amounts (should be rejected before reaching to_minor_units)"
+    ],
+    "sanity_checks": {}
+  },
+  "open_questions": [
+    "Are there other callers of to_minor_units()?",
+    "Have the ~280 unique customers affected customers been notified?",
+    "Is there a rollback plan if the fix introduces regressions?",
+    "Have the related issues BUG-2801 and BUG-2756 been reviewed for similar patterns?"
+  ],
+  "metadata": {
+    "pipeline_confidence": 0.89,
+    "llm_used": false,
+    "agent_trace": [
+      {
+        "agent": "preprocess",
+        "start": 1775706119.9857018,
+        "status": "success",
+        "duration_s": 0.006
+      },
+      {
+        "agent": "triage",
+        "start": 1775706119.9929252,
+        "status": "success",
+        "duration_s": 0.001
+      },
+      {
+        "agent": "log_analyst",
+        "start": 1775706119.9940681,
+        "status": "success",
+        "duration_s": 0.004
+      },
+      {
+        "agent": "repo_navigator",
+        "start": 1775706119.9992292,
+        "status": "success",
+        "duration_s": 31.691
+      },
+      {
+        "agent": "repro",
+        "start": 1775706151.6913962,
+        "status": "success",
+        "duration_s": 0.373
+      },
+      {
+        "agent": "fix_planner",
+        "start": 1775706152.0698073,
+        "status": "success",
+        "duration_s": 0.001
+      },
+      {
+        "agent": "reviewer",
+        "start": 1775706152.0715916,
+        "status": "success",
+        "duration_s": 0.001
+      },
+      {
+        "agent": "finalize",
+        "start": 1775706152.073475,
+        "status": "success",
+        "duration_s": 0.001
+      }
+    ],
+    "pipeline_errors": [
+      "WARNING: Ollama/LLM not available \u2014 using heuristic fallbacks"
+    ],
+    "review_passed": false,
+    "review_recommendation": "PROCEED WITH CAUTION: 1 warning(s). Address warnings before production deployment.",
+    "critiques": [],
+    "contradictions": [],
+    "generated_at": "2026-04-09T03:42:32Z"
+  }
+}
